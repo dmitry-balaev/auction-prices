@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: AuctionPrices
-## Version: 1.0
+## Version: 1.0.1
 ## Notes: Цены аукциона в подсказках предметов
 ## Category: Лоты
 ## IconTexture: Interface\Icons\INV_Misc_Coin_01

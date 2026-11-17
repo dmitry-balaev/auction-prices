@@ -1,8 +1,10 @@
-local BUILD = select(4, GetBuildInfo())
 local CAMELOT = WOW_PROJECT_CAMELOT
-local MIN_BUILD = 16000
-local MAX_BUILD = 20000
-AuctionPrices.enabled = CAMELOT ~= nil and WOW_PROJECT_ID == CAMELOT and BUILD >= MIN_BUILD and BUILD < MAX_BUILD
+local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:12:12:0:0|t"
+local SILVER_ICON = "|TInterface\\MoneyFrame\\UI-SilverIcon:12:12:0:0|t"
+local COPPER_ICON = "|TInterface\\MoneyFrame\\UI-CopperIcon:12:12:0:0|t"
+local STALE_SCAN_SECONDS = 3 * 24 * 60 * 60
+
+AuctionPrices.enabled = CAMELOT ~= nil and WOW_PROJECT_ID == CAMELOT
 
 if not AuctionPrices.enabled then
   return
@@ -16,10 +18,6 @@ function AuctionPrices.EnsureSavedDatabase()
     AUCTION_PRICES_DB.realms = {}
   end
 end
-
-local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:12:12:0:0|t"
-local SILVER_ICON = "|TInterface\\MoneyFrame\\UI-SilverIcon:12:12:0:0|t"
-local COPPER_ICON = "|TInterface\\MoneyFrame\\UI-CopperIcon:12:12:0:0|t"
 
 local function FormatCoinAmount(coinCount, coinIcon, padToTwoDigits)
   local coinText = tostring(coinCount)
@@ -50,6 +48,21 @@ function AuctionPrices.FormatMoney(copperAmount)
   return table.concat(moneyParts, " ")
 end
 
+local function PrintChatMessage(textKey)
+  print("|cff33ff99AuctionPrices:|r " .. AuctionPrices.Text(textKey))
+end
+
+local function RemindAboutScan()
+  local lastScanTime = AuctionPrices.GetRealmPriceDatabase().lastScan
+  if not lastScanTime or AuctionPrices.CountStoredPrices() == 0 then
+    PrintChatMessage("MISSING_DB")
+    return
+  end
+  if time() - lastScanTime > STALE_SCAN_SECONDS then
+    PrintChatMessage("STALE_SCAN")
+  end
+end
+
 local addonLoadListener = CreateFrame("Frame")
 addonLoadListener:RegisterEvent("ADDON_LOADED")
 addonLoadListener:RegisterEvent("PLAYER_LOGIN")
@@ -59,5 +72,6 @@ addonLoadListener:SetScript("OnEvent", function(_, event, addonName)
     AuctionPrices.SetupOptionsPanel()
   elseif event == "PLAYER_LOGIN" then
     AuctionPrices.Tooltips.InstallHooks()
+    RemindAboutScan()
   end
 end)
