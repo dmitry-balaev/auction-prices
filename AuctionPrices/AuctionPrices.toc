@@ -1,0 +1,16 @@
+## Interface: 16001
+## Title: AuctionPrices
+## Version: 1.0
+## Notes: Цены аукциона в подсказках предметов
+## Category: Лоты
+## IconTexture: Interface\Icons\INV_Misc_Coin_01
+## SavedVariables: AUCTION_PRICES_DB
+## AllowLoadGameType: camelot
+
+Locales.lua
+Core.lua
+Database.lua
+Scan.lua
+AuctionHouse.lua
+Tooltips.lua
+Config.lua
