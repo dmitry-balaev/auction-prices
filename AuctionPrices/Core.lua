@@ -1,38 +1,83 @@
-local CAMELOT = WOW_PROJECT_CAMELOT
-local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:12:12:0:0|t"
-local SILVER_ICON = "|TInterface\\MoneyFrame\\UI-SilverIcon:12:12:0:0|t"
-local COPPER_ICON = "|TInterface\\MoneyFrame\\UI-CopperIcon:12:12:0:0|t"
+local CHAT_PREFIX = "|cff33ff99AuctionPrices:|r "
+local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:12:12:2:0|t"
+local SILVER_ICON = "|TInterface\\MoneyFrame\\UI-SilverIcon:12:12:2:0|t"
+local COPPER_ICON = "|TInterface\\MoneyFrame\\UI-CopperIcon:12:12:2:0|t"
 local STALE_SCAN_SECONDS = 3 * 24 * 60 * 60
 
-AuctionPrices.enabled = CAMELOT ~= nil and WOW_PROJECT_ID == CAMELOT
+local NOT_SOULBOUND_BIND_TYPES = {
+  [Enum.ItemBind.None] = true,
+  [Enum.ItemBind.OnEquip] = true,
+  [Enum.ItemBind.OnUse] = true,
+}
 
-if not AuctionPrices.enabled then
-  return
+local function PrintReminder(textKey)
+  print(CHAT_PREFIX .. AuctionPrices.Text(textKey))
 end
 
-function AuctionPrices.EnsureSavedDatabase()
-  if type(AUCTION_PRICES_DB) ~= "table" then
-    AUCTION_PRICES_DB = {}
+function AuctionPrices.CountKeys(keyedTable)
+  local keyCount = 0
+  for _ in pairs(keyedTable) do
+    keyCount = keyCount + 1
   end
-  if type(AUCTION_PRICES_DB.realms) ~= "table" then
-    AUCTION_PRICES_DB.realms = {}
+  return keyCount
+end
+
+function AuctionPrices.CreateNotifier()
+  local callbacks = {}
+  local notifier = {}
+
+  function notifier.Register(callback)
+    table.insert(callbacks, callback)
   end
+
+  function notifier.Notify()
+    for _, callback in ipairs(callbacks) do
+      callback()
+    end
+  end
+
+  return notifier
+end
+
+AuctionPrices.AuctionHouseUILoaded = AuctionPrices.CreateNotifier()
+AuctionPrices.PriceCheckChanged = AuctionPrices.CreateNotifier()
+
+function AuctionPrices.IsCarriedBag(bagID)
+  return bagID >= BACKPACK_CONTAINER and bagID <= NUM_TOTAL_EQUIPPED_BAG_SLOTS
+end
+
+function AuctionPrices.EachCarriedBagSlot(visitSlot)
+  for bagID = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+    for slotID = 1, C_Container.GetContainerNumSlots(bagID) do
+      visitSlot(bagID, slotID)
+    end
+  end
+end
+
+function AuctionPrices.ItemLinkIsSoulbound(itemLink)
+  local itemName, _, _, _, _, _, _, _, _, _, _, _, _, bindType = C_Item.GetItemInfo(itemLink)
+  if not itemName then
+    return false
+  end
+  if NOT_SOULBOUND_BIND_TYPES[bindType] then
+    return C_Item.IsItemBindToAccountUntilEquip(itemLink)
+  end
+  return bindType ~= nil
+end
+
+function AuctionPrices.IsBagItemBound(containerItemInfo)
+  return containerItemInfo.isBound or AuctionPrices.ItemLinkIsSoulbound(containerItemInfo.hyperlink)
 end
 
 local function FormatCoinAmount(coinCount, coinIcon, padToTwoDigits)
-  local coinText = tostring(coinCount)
-  if padToTwoDigits and coinCount < 10 then
-    coinText = "0" .. coinText
+  if padToTwoDigits then
+    return string.format("%02d", coinCount) .. coinIcon
   end
-  return coinText .. " " .. coinIcon
+  return coinCount .. coinIcon
 end
 
 function AuctionPrices.FormatMoney(copperAmount)
-  copperAmount = math.floor(copperAmount or 0)
-  if copperAmount < 0 then
-    copperAmount = 0
-  end
-
+  copperAmount = math.floor(copperAmount)
   local copper = copperAmount % 100
   local silver = math.floor(copperAmount / 100) % 100
   local gold = math.floor(copperAmount / 10000)
@@ -48,30 +93,32 @@ function AuctionPrices.FormatMoney(copperAmount)
   return table.concat(moneyParts, " ")
 end
 
-local function PrintChatMessage(textKey)
-  print("|cff33ff99AuctionPrices:|r " .. AuctionPrices.Text(textKey))
-end
-
 local function RemindAboutScan()
   local lastScanTime = AuctionPrices.GetRealmPriceDatabase().lastScan
   if not lastScanTime or AuctionPrices.CountStoredPrices() == 0 then
-    PrintChatMessage("MISSING_DB")
+    PrintReminder("MISSING_DB")
     return
   end
   if time() - lastScanTime > STALE_SCAN_SECONDS then
-    PrintChatMessage("STALE_SCAN")
+    PrintReminder("STALE_SCAN")
   end
 end
 
-local addonLoadListener = CreateFrame("Frame")
-addonLoadListener:RegisterEvent("ADDON_LOADED")
-addonLoadListener:RegisterEvent("PLAYER_LOGIN")
-addonLoadListener:SetScript("OnEvent", function(_, event, addonName)
-  if event == "ADDON_LOADED" and addonName == "AuctionPrices" then
-    AuctionPrices.EnsureSavedDatabase()
-    AuctionPrices.SetupOptionsPanel()
-  elseif event == "PLAYER_LOGIN" then
+local startupListener = CreateFrame("Frame")
+startupListener:RegisterEvent("ADDON_LOADED")
+startupListener:RegisterEvent("PLAYER_LOGIN")
+startupListener:SetScript("OnEvent", function(_, event, addonName)
+  if event == "PLAYER_LOGIN" then
     AuctionPrices.Tooltips.InstallHooks()
+    AuctionPrices.Bags.Install()
     RemindAboutScan()
+    return
   end
+  if addonName ~= "AuctionPrices" then
+    return
+  end
+  AuctionPrices.InitializeDatabase()
+  AuctionPrices.InitializeSettings()
+  AuctionPrices.SetupOptionsPanel()
+  EventUtil.ContinueOnAddOnLoaded("Blizzard_AuctionHouseUI", AuctionPrices.AuctionHouseUILoaded.Notify)
 end)

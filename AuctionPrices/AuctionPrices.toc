@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: AuctionPrices
-## Version: 1.0.1
+## Version: 1.1.0
 ## Notes: Цены аукциона в подсказках предметов
 ## Category: Лоты
 ## IconTexture: Interface\Icons\INV_Misc_Coin_01
@@ -14,3 +14,7 @@ Scan.lua
 AuctionHouse.lua
 Tooltips.lua
 Config.lua
+Bags.lua
+Posting.lua
+BagPrices.lua
+SmartSell.lua

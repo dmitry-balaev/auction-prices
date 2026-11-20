@@ -1,7 +1,3 @@
-if not AuctionPrices or not AuctionPrices.enabled then
-  return
-end
-
 AuctionPrices.Scan = {}
 
 local SCAN_COOLDOWN_SECONDS = 15 * 60
@@ -9,6 +5,7 @@ local REPLICATE_BATCH_SIZE = 250
 local AUCTION_BATCH_DELAY_SECONDS = 0.01
 local UNRESOLVED_AUCTION_TIMEOUT_SECONDS = 8
 local ITEM_DATA_RETRY_SECONDS = 0.4
+local MAX_SHOWN_PROCESSING_PERCENT = 99
 local REPLICATE_STACK_COUNT_INDEX = 3
 local REPLICATE_BUYOUT_INDEX = 10
 local REPLICATE_ITEM_ID_INDEX = 17
@@ -18,11 +15,11 @@ local scanInProgress = false
 local waitingForAuctionList = false
 local scanGeneration = 0
 local scanStatusCallback
-local lastShownProcessingPercent = -1
+local lastShownProcessingPercent
 
 local pendingItemDataCallbacks = {}
 local itemDataLoadFrame = CreateFrame("Frame")
-itemDataLoadFrame.elapsed = 0
+local replicateEventFrame = CreateFrame("Frame")
 
 itemDataLoadFrame:SetScript("OnEvent", function(_, _, itemID)
   local callbacks = pendingItemDataCallbacks[itemID]
@@ -35,27 +32,29 @@ itemDataLoadFrame:SetScript("OnEvent", function(_, _, itemID)
   end
 end)
 
+local elapsedSinceItemDataRetry = 0
+
 local function RetryPendingItemDataLoads(_, elapsed)
-  itemDataLoadFrame.elapsed = itemDataLoadFrame.elapsed + elapsed
-  if itemDataLoadFrame.elapsed > ITEM_DATA_RETRY_SECONDS then
-    for itemID in pairs(pendingItemDataCallbacks) do
-      C_Item.RequestLoadItemDataByID(itemID)
-    end
-    itemDataLoadFrame.elapsed = 0
-  end
   if next(pendingItemDataCallbacks) == nil then
-    itemDataLoadFrame.elapsed = 0
+    elapsedSinceItemDataRetry = 0
     itemDataLoadFrame:SetScript("OnUpdate", nil)
     itemDataLoadFrame:UnregisterEvent("ITEM_DATA_LOAD_RESULT")
+    return
+  end
+  elapsedSinceItemDataRetry = elapsedSinceItemDataRetry + elapsed
+  if elapsedSinceItemDataRetry <= ITEM_DATA_RETRY_SECONDS then
+    return
+  end
+  elapsedSinceItemDataRetry = 0
+  for itemID in pairs(pendingItemDataCallbacks) do
+    C_Item.RequestLoadItemDataByID(itemID)
   end
 end
 
-local function RequestItemDataThen(itemID, callback)
-  if not C_Item.RequestLoadItemDataByID then
-    callback()
-    return
+local function LoadItemDataThen(itemID, callback)
+  if not pendingItemDataCallbacks[itemID] then
+    pendingItemDataCallbacks[itemID] = {}
   end
-  pendingItemDataCallbacks[itemID] = pendingItemDataCallbacks[itemID] or {}
   table.insert(pendingItemDataCallbacks[itemID], callback)
   itemDataLoadFrame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
   itemDataLoadFrame:SetScript("OnUpdate", RetryPendingItemDataLoads)
@@ -63,30 +62,16 @@ local function RequestItemDataThen(itemID, callback)
 end
 
 local function ReportScanStatus(statusText)
-  if scanStatusCallback then
-    scanStatusCallback(statusText or "")
-  end
+  scanStatusCallback(statusText)
 end
 
-local function ReportProcessingPercent(percent)
-  percent = math.floor(percent)
-  if percent < 0 then
-    percent = 0
-  elseif percent > 99 then
-    percent = 99
-  end
+local function ReportProcessingPercent(processedCount, auctionCount)
+  local percent = math.min(math.floor(processedCount / auctionCount * 100), MAX_SHOWN_PROCESSING_PERCENT)
   if percent == lastShownProcessingPercent then
     return
   end
   lastShownProcessingPercent = percent
   ReportScanStatus(AuctionPrices.Text("PROCESSING", percent))
-end
-
-local replicateEventFrame = CreateFrame("Frame")
-
-local function UnregisterScanEvents()
-  replicateEventFrame:UnregisterEvent("REPLICATE_ITEM_LIST_UPDATE")
-  replicateEventFrame:UnregisterEvent("AUCTION_HOUSE_CLOSED")
 end
 
 local function IsCurrentScan(generationToken)
@@ -95,19 +80,7 @@ end
 
 local function SecondsUntilNextScan()
   local lastAttemptTime = AuctionPrices.GetRealmPriceDatabase().lastAttempt or 0
-  local secondsRemaining = SCAN_COOLDOWN_SECONDS - (time() - lastAttemptTime)
-  if secondsRemaining < 0 then
-    return 0
-  end
-  return secondsRemaining
-end
-
-local function CountCollectedPriceKeys(collectedPrices)
-  local collectedPriceCount = 0
-  for _ in pairs(collectedPrices) do
-    collectedPriceCount = collectedPriceCount + 1
-  end
-  return collectedPriceCount
+  return math.max(SCAN_COOLDOWN_SECONDS - (time() - lastAttemptTime), 0)
 end
 
 local function FinishScan(collectedPrices)
@@ -115,21 +88,20 @@ local function FinishScan(collectedPrices)
   if not scanInProgress then
     return
   end
-  local pricesToSave = collectedPrices
-  local hasCollectedPrices = pricesToSave and CountCollectedPriceKeys(pricesToSave) > 0
   scanInProgress = false
   scanGeneration = scanGeneration + 1
-  UnregisterScanEvents()
-  if hasCollectedPrices then
-    AuctionPrices.ReplaceStoredPrices(pricesToSave, time())
+  replicateEventFrame:UnregisterAllEvents()
+  if collectedPrices and next(collectedPrices) then
+    AuctionPrices.ReplaceStoredPrices(collectedPrices, time())
   end
-  ReportScanStatus("")
+  ReportScanStatus(nil)
+  AuctionPrices.PriceCheckChanged.Notify()
 end
 
 local function StoreCheapestUnitPrice(collectedPrices, priceKeys, unitPrice)
   for _, priceKey in ipairs(priceKeys) do
-    local currentUnitPrice = collectedPrices[priceKey]
-    if not currentUnitPrice or unitPrice < currentUnitPrice then
+    local cheapestUnitPrice = collectedPrices[priceKey]
+    if not cheapestUnitPrice or unitPrice < cheapestUnitPrice then
       collectedPrices[priceKey] = unitPrice
     end
   end
@@ -155,116 +127,103 @@ end
 
 local function PriceKeysForAuction(itemLink, itemID)
   local priceKeys = itemLink and AuctionPrices.PriceKeysForItemLink(itemLink) or {}
-  if #priceKeys == 0 then
-    priceKeys = { tostring(itemID) }
+  if not priceKeys[1] then
+    return { tostring(itemID) }
   end
   return priceKeys
 end
 
-local function ProcessReplicateList(generationToken)
-  if not IsCurrentScan(generationToken) then
+local function FinishBatchIfComplete(batch)
+  if IsCurrentScan(batch.generationToken) and batch.allQueued and batch.unfinishedCount == 0 then
+    FinishScan(batch.collectedPrices)
+  end
+end
+
+local function MarkAuctionProcessed(batch)
+  batch.unfinishedCount = batch.unfinishedCount - 1
+  batch.processedCount = batch.processedCount + 1
+  ReportProcessingPercent(batch.processedCount, batch.auctionCount)
+  FinishBatchIfComplete(batch)
+end
+
+local function StoreAuctionPrice(batch, replicateIndex, itemID, unitPrice)
+  if not IsCurrentScan(batch.generationToken) then
     return
   end
-  waitingForAuctionList = false
+  local itemLink = C_AuctionHouse.GetReplicateItemLink(replicateIndex)
+  StoreCheapestUnitPrice(batch.collectedPrices, PriceKeysForAuction(itemLink, itemID), unitPrice)
+  MarkAuctionProcessed(batch)
+end
 
+local function QueueAuction(batch, replicateIndex)
+  batch.unfinishedCount = batch.unfinishedCount + 1
+  local itemID, unitPrice, itemDataIsLoaded = ReadBuyoutAuction(replicateIndex)
+  if not itemID then
+    MarkAuctionProcessed(batch)
+    return
+  end
+  if itemDataIsLoaded then
+    StoreAuctionPrice(batch, replicateIndex, itemID, unitPrice)
+    return
+  end
+  LoadItemDataThen(itemID, function()
+    StoreAuctionPrice(batch, replicateIndex, itemID, unitPrice)
+  end)
+end
+
+local function FinishUnresolvedAuctionsLater(batch)
+  C_Timer.After(UNRESOLVED_AUCTION_TIMEOUT_SECONDS, function()
+    if IsCurrentScan(batch.generationToken) then
+      FinishScan(batch.collectedPrices)
+    end
+  end)
+end
+
+local function ProcessAuctionBatch(batch, firstAuctionIndex)
+  if not IsCurrentScan(batch.generationToken) then
+    return
+  end
+  local lastAuctionIndex = math.min(firstAuctionIndex + REPLICATE_BATCH_SIZE, batch.auctionCount) - 1
+  for replicateIndex = firstAuctionIndex, lastAuctionIndex do
+    QueueAuction(batch, replicateIndex)
+  end
+  if lastAuctionIndex < batch.auctionCount - 1 then
+    C_Timer.After(AUCTION_BATCH_DELAY_SECONDS, function()
+      ProcessAuctionBatch(batch, lastAuctionIndex + 1)
+    end)
+    return
+  end
+  batch.allQueued = true
+  FinishBatchIfComplete(batch)
+  FinishUnresolvedAuctionsLater(batch)
+end
+
+local function ProcessReplicateList()
+  waitingForAuctionList = false
   local auctionCount = C_AuctionHouse.GetNumReplicateItems()
-  if not auctionCount or auctionCount <= 0 then
+  if auctionCount == 0 then
     FinishScan()
     return
   end
 
-  local collectedPrices = {}
-  local unfinishedAuctionCount = 0
-  local processedAuctionCount = 0
-  local allAuctionsQueued = false
-
-  lastShownProcessingPercent = -1
-
-  local function UpdateProcessingPercent()
-    local percent = processedAuctionCount / auctionCount * 100
-    if processedAuctionCount < auctionCount and percent > 99 then
-      percent = 99
-    end
-    ReportProcessingPercent(percent)
-  end
-
-  local function FinishWhenAllAuctionsProcessed()
-    if not IsCurrentScan(generationToken) or not allAuctionsQueued or unfinishedAuctionCount > 0 then
-      return
-    end
-    FinishScan(collectedPrices)
-  end
-
-  local function MarkAuctionProcessed()
-    unfinishedAuctionCount = unfinishedAuctionCount - 1
-    processedAuctionCount = processedAuctionCount + 1
-    UpdateProcessingPercent()
-    FinishWhenAllAuctionsProcessed()
-  end
-
-  local function StoreAuctionPrice(itemID, unitPrice, itemLink)
-    if not IsCurrentScan(generationToken) then
-      return
-    end
-    StoreCheapestUnitPrice(collectedPrices, PriceKeysForAuction(itemLink, itemID), unitPrice)
-    MarkAuctionProcessed()
-  end
-
-  local function QueueAuctionAtIndex(replicateIndex)
-    if not IsCurrentScan(generationToken) then
-      return
-    end
-    unfinishedAuctionCount = unfinishedAuctionCount + 1
-
-    local itemID, unitPrice, itemDataIsLoaded = ReadBuyoutAuction(replicateIndex)
-    if not itemID then
-      MarkAuctionProcessed()
-      return
-    end
-
-    if not itemDataIsLoaded then
-      RequestItemDataThen(itemID, function()
-        StoreAuctionPrice(itemID, unitPrice, C_AuctionHouse.GetReplicateItemLink(replicateIndex))
-      end)
-      return
-    end
-    StoreAuctionPrice(itemID, unitPrice, C_AuctionHouse.GetReplicateItemLink(replicateIndex))
-  end
-
-  local function ProcessAuctionBatch(firstAuctionIndex)
-    if not IsCurrentScan(generationToken) then
-      return
-    end
-    local lastAuctionIndex = math.min(firstAuctionIndex + REPLICATE_BATCH_SIZE - 1, auctionCount - 1)
-    for replicateIndex = firstAuctionIndex, lastAuctionIndex do
-      QueueAuctionAtIndex(replicateIndex)
-    end
-    if lastAuctionIndex >= auctionCount - 1 then
-      allAuctionsQueued = true
-      FinishWhenAllAuctionsProcessed()
-      C_Timer.After(UNRESOLVED_AUCTION_TIMEOUT_SECONDS, function()
-        if not IsCurrentScan(generationToken) then
-          return
-        end
-        FinishScan(collectedPrices)
-      end)
-      return
-    end
-    C_Timer.After(AUCTION_BATCH_DELAY_SECONDS, function()
-      ProcessAuctionBatch(lastAuctionIndex + 1)
-    end)
-  end
-
-  ProcessAuctionBatch(0)
+  lastShownProcessingPercent = nil
+  ProcessAuctionBatch({
+    generationToken = scanGeneration,
+    collectedPrices = {},
+    auctionCount = auctionCount,
+    unfinishedCount = 0,
+    processedCount = 0,
+    allQueued = false,
+  }, 0)
 end
 
 replicateEventFrame:SetScript("OnEvent", function(_, event)
-  if event == "REPLICATE_ITEM_LIST_UPDATE" then
-    replicateEventFrame:UnregisterEvent("REPLICATE_ITEM_LIST_UPDATE")
-    ProcessReplicateList(scanGeneration)
-  elseif event == "AUCTION_HOUSE_CLOSED" then
+  if event == "AUCTION_HOUSE_CLOSED" then
     FinishScan()
+    return
   end
+  replicateEventFrame:UnregisterEvent("REPLICATE_ITEM_LIST_UPDATE")
+  ProcessReplicateList()
 end)
 
 function AuctionPrices.Scan.SetStatusCallback(callback)
@@ -280,39 +239,24 @@ function AuctionPrices.Scan.IsWaitingForAuctionList()
 end
 
 function AuctionPrices.Scan.CanStart()
-  return not scanInProgress and SecondsUntilNextScan() <= 0
+  return not scanInProgress and SecondsUntilNextScan() == 0
 end
 
 function AuctionPrices.Scan.CooldownMessage()
   local secondsRemaining = SecondsUntilNextScan()
-  return AuctionPrices.Text("NEXT_SCAN", math.floor(secondsRemaining / 60), math.floor(secondsRemaining % 60))
+  return AuctionPrices.Text("NEXT_SCAN", math.floor(secondsRemaining / 60), secondsRemaining % 60)
 end
 
 function AuctionPrices.Scan.Start()
-  if not AuctionHouseFrame or not AuctionHouseFrame:IsShown() then
-    return
-  end
-  if not AuctionPrices.Scan.CanStart() then
-    return
-  end
-  if not C_AuctionHouse or not C_AuctionHouse.ReplicateItems then
-    return
-  end
-
   scanGeneration = scanGeneration + 1
-  local generationToken = scanGeneration
   scanInProgress = true
-  local realmDatabase = AuctionPrices.GetRealmPriceDatabase()
-  realmDatabase.lastAttempt = time()
-  lastShownProcessingPercent = -1
   waitingForAuctionList = true
+  AuctionPrices.BagPrices.Stop()
+  AuctionPrices.GetRealmPriceDatabase().lastAttempt = time()
   ReportScanStatus(AuctionPrices.Text("FETCHING"))
+  AuctionPrices.PriceCheckChanged.Notify()
 
   replicateEventFrame:RegisterEvent("REPLICATE_ITEM_LIST_UPDATE")
   replicateEventFrame:RegisterEvent("AUCTION_HOUSE_CLOSED")
-  local replicateRequestAccepted = pcall(C_AuctionHouse.ReplicateItems)
-  if not replicateRequestAccepted or generationToken ~= scanGeneration then
-    realmDatabase.lastAttempt = nil
-    FinishScan()
-  end
+  C_AuctionHouse.ReplicateItems()
 end

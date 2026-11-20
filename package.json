@@ -1,0 +1,7 @@
+{
+  "name": "auctionprices",
+  "private": true,
+  "scripts": {
+    "copy": "node scripts/copy-to-wow.js"
+  }
+}

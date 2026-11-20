@@ -1,0 +1,18 @@
+---
+description: Copy the AuctionPrices addon into the WoW client after every addon change
+alwaysApply: true
+---
+
+# Copy the addon
+
+After any change under `AuctionPrices/`, copy it into the game client before finishing. Do not ask the user to copy it.
+
+Run from the repository root:
+
+```bash
+npm run copy
+```
+
+That runs `scripts/copy-to-wow.js`, which reads `wow-path.local` and rsyncs `AuctionPrices/` into the client's `Interface/AddOns/AuctionPrices/`.
+
+If the copy fails, say why and stop. The user still reloads the UI in game with `/reload`.
