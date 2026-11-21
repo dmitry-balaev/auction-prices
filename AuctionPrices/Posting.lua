@@ -31,15 +31,6 @@ local function SlotKey(slot)
   return slot.bagID .. ":" .. slot.slotID .. ":" .. slot.itemLink
 end
 
-local function ForgetPriority(slot)
-  local slotKey = SlotKey(slot)
-  for index = #priorityKeys, 1, -1 do
-    if priorityKeys[index] == slotKey then
-      table.remove(priorityKeys, index)
-    end
-  end
-end
-
 function AuctionPrices.Posting.OrderByPriority(slots)
   local rankByKey = {}
   for rank, slotKey in ipairs(priorityKeys) do
@@ -61,15 +52,6 @@ function AuctionPrices.Posting.OrderByPriority(slots)
     table.insert(prioritized, slot)
   end
   return prioritized
-end
-
-function AuctionPrices.Posting.PutFirst(slot)
-  ForgetPriority(slot)
-  table.insert(priorityKeys, 1, SlotKey(slot))
-  if postingActive then
-    queue = AuctionPrices.Posting.OrderByPriority(queue)
-  end
-  NotifyActivity()
 end
 
 local function AuctionUnitPrice(unitPrice)
@@ -260,7 +242,6 @@ end
 
 local function SendAuction(slot, lot)
   local countBefore = BagItemCount(lot.itemLink)
-  ForgetPriority(slot)
   local needsConfirmation = PostLot(lot)
   inFlightGeneration = inFlightGeneration + 1
   inFlight = {
@@ -348,6 +329,39 @@ local function PostableSlots()
     end
   end
   return AuctionPrices.Posting.OrderByPriority(slots)
+end
+
+function AuctionPrices.Posting.SwapWithCurrent(slot)
+  local slots = {}
+  for _, candidate in ipairs(AuctionPrices.CollectWorthAuctionSlots()) do
+    if not AuctionPrices.IsDoNotSell(candidate.itemLink) then
+      table.insert(slots, candidate)
+    end
+  end
+  slots = AuctionPrices.Posting.OrderByPriority(slots)
+  local currentKey = SlotKey(AuctionPrices.Posting.GetCurrentSlot() or slots[1] or slot)
+  local chosenKey = SlotKey(slot)
+  local currentIndex, chosenIndex
+  for index, orderedSlot in ipairs(slots) do
+    local key = SlotKey(orderedSlot)
+    if key == currentKey then
+      currentIndex = index
+    elseif key == chosenKey then
+      chosenIndex = index
+    end
+  end
+  if not currentIndex or not chosenIndex or currentIndex == chosenIndex then
+    return
+  end
+  slots[currentIndex], slots[chosenIndex] = slots[chosenIndex], slots[currentIndex]
+  priorityKeys = {}
+  for index, orderedSlot in ipairs(slots) do
+    priorityKeys[index] = SlotKey(orderedSlot)
+  end
+  if postingActive then
+    queue = PostableSlots()
+  end
+  NotifyActivity()
 end
 
 local function RebuildQueue()

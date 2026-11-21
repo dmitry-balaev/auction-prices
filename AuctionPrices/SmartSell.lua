@@ -115,7 +115,7 @@ local function OnSlotClick(button, mouseButton)
     return
   end
   if mouseButton == "LeftButton" then
-    AuctionPrices.Posting.PutFirst({ bagID = button.bagID, slotID = button.slotID, itemLink = button.itemLink })
+    AuctionPrices.Posting.SwapWithCurrent({ bagID = button.bagID, slotID = button.slotID, itemLink = button.itemLink })
     return
   end
   AuctionPrices.AddDoNotSell(button.itemLink)
@@ -126,7 +126,7 @@ local function OnSlotEnter(button)
   if button.excludedFromSale then
     GameTooltip:SetText(AuctionPrices.Text("CLICK_RETURNS_TO_SALE"), nil, nil, nil, nil, true)
   else
-    GameTooltip:SetText(AuctionPrices.Text("LEFT_CLICK_POSTS_FIRST"), nil, nil, nil, nil, true)
+    GameTooltip:SetText(AuctionPrices.Text("LEFT_CLICK_POSTS_ITEM"), nil, nil, nil, nil, true)
     GameTooltip:AddLine(AuctionPrices.Text("RIGHT_CLICK_EXCLUDES_ITEM"), nil, nil, nil, true)
   end
   GameTooltip:Show()
@@ -383,7 +383,7 @@ local function CreateItemHeader(preview)
   previewIcon:SetScript("OnLeave", GameTooltip_Hide)
 
   previewName = CreatePreviewText("SystemFont_Shadow_Med2")
-  previewName:SetPoint("TOPLEFT", previewIcon, "TOPRIGHT", PREVIEW_TEXT_GAP, 0)
+  previewName:SetPoint("TOPLEFT", previewIcon, "TOPRIGHT", PREVIEW_TEXT_GAP, -2)
   previewName:SetWordWrap(false)
 
   previewPrice = CreatePreviewText("GameFontNormal")
