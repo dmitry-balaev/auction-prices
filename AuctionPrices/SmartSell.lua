@@ -63,7 +63,7 @@ local function SplitWorthAuctionSlots()
       table.insert(excluded, slot)
     end
   end
-  return relevant, excluded, slotsWaitingForItemData
+  return AuctionPrices.Posting.OrderByPriority(relevant), excluded, slotsWaitingForItemData
 end
 
 local function ShowPostButtonTooltip(owner)
@@ -72,7 +72,7 @@ local function ShowPostButtonTooltip(owner)
     return
   end
   GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-  GameTooltip:SetText(AuctionPrices.Text("POST_TOOLTIP"), nil, nil, nil, nil, true)
+  GameTooltip:SetText(AuctionPrices.Text("POST_CURRENT_LOT"), nil, nil, nil, nil, true)
   GameTooltip:Show()
 end
 
@@ -109,18 +109,26 @@ local function ColumnCount(scroll)
   return math.max(math.floor((scroll:GetWidth() + SLOT_GAP) / (SLOT_SIZE + SLOT_GAP)), 1)
 end
 
-local function OnSlotClick(button)
+local function OnSlotClick(button, mouseButton)
   if button.excludedFromSale then
     AuctionPrices.RemoveDoNotSell(button.itemLink)
+    return
+  end
+  if mouseButton == "LeftButton" then
+    AuctionPrices.Posting.PutFirst({ bagID = button.bagID, slotID = button.slotID, itemLink = button.itemLink })
     return
   end
   AuctionPrices.AddDoNotSell(button.itemLink)
 end
 
 local function OnSlotEnter(button)
-  local textKey = button.excludedFromSale and "RETURN_TO_SALE" or "EXCLUDE_FROM_SALE"
   GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
-  GameTooltip:SetText(AuctionPrices.Text(textKey), nil, nil, nil, nil, true)
+  if button.excludedFromSale then
+    GameTooltip:SetText(AuctionPrices.Text("CLICK_RETURNS_TO_SALE"), nil, nil, nil, nil, true)
+  else
+    GameTooltip:SetText(AuctionPrices.Text("LEFT_CLICK_POSTS_FIRST"), nil, nil, nil, nil, true)
+    GameTooltip:AddLine(AuctionPrices.Text("RIGHT_CLICK_EXCLUDES_ITEM"), nil, nil, nil, true)
+  end
   GameTooltip:Show()
 end
 
@@ -130,6 +138,13 @@ local function CreateSlotButton(list)
   local slotBackground = button:CreateTexture(nil, "BACKGROUND")
   slotBackground:SetAtlas("bags-item-slot64")
   slotBackground:SetAllPoints()
+  local currentLotGlow = button:CreateTexture(nil, "OVERLAY", nil, 7)
+  currentLotGlow:SetTexture("Interface\\Buttons\\CheckButtonHilight")
+  currentLotGlow:SetBlendMode("ADD")
+  currentLotGlow:SetAllPoints()
+  currentLotGlow:Hide()
+  button.currentLotGlow = currentLotGlow
+  button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   button:SetScript("OnClick", OnSlotClick)
   button:SetScript("OnEnter", OnSlotEnter)
   button:SetScript("OnLeave", GameTooltip_Hide)
@@ -189,11 +204,11 @@ end
 
 local function FitLotCaption()
   local widestLine = 1
-  for line in AuctionPrices.Text("POSTING_LOT"):gmatch("[^\n]+") do
+  for line in AuctionPrices.Text("LOT_BEING_POSTED"):gmatch("[^\n]+") do
     previewLotLabel:SetText(line)
     widestLine = math.max(widestLine, previewLotLabel:GetStringWidth())
   end
-  previewLotLabel:SetText(AuctionPrices.Text("POSTING_LOT"))
+  previewLotLabel:SetText(AuctionPrices.Text("LOT_BEING_POSTED"))
   previewLotLabel:SetWidth(widestLine + 2)
   return widestLine + 2
 end
@@ -245,7 +260,7 @@ local function ShowPreviewLot(lot)
   ShowPreviewItem(lot.itemLink, lot.quantity)
   local stackPrice = lot.unitPrice * lot.quantity
   local priceText = stackPrice > 0 and AuctionPrices.FormatMoney(stackPrice) or AuctionPrices.Text("UNKNOWN")
-  previewPrice:SetText(AuctionPrices.Text("UNIT_PRICE", priceText))
+  previewPrice:SetText(AuctionPrices.Text("PRICE", priceText))
   previewDeposit:SetText(AuctionPrices.Text("DEPOSIT", AuctionPrices.FormatMoney(lot.deposit)))
 end
 
@@ -253,13 +268,24 @@ local function ShowUnknownLot()
   SetItemButtonTexture(previewIcon, nil)
   SetItemButtonQuality(previewIcon, nil)
   SetItemButtonCount(previewIcon, nil)
-  previewName:SetText(AuctionPrices.Text("NO_LOT"))
-  previewPrice:SetText(AuctionPrices.Text("UNIT_PRICE", AuctionPrices.Text("UNKNOWN")))
+  previewName:SetText(AuctionPrices.Text("NO_ITEM"))
+  previewPrice:SetText(AuctionPrices.Text("PRICE", AuctionPrices.Text("UNKNOWN")))
   previewDeposit:SetText(AuctionPrices.Text("DEPOSIT", AuctionPrices.Text("UNKNOWN")))
+end
+
+local function HighlightCurrentLot(slot)
+  for _, button in ipairs(relevantList.buttons) do
+    local isCurrentLot = slot ~= nil
+      and button:IsShown()
+      and button.bagID == slot.bagID
+      and button.slotID == slot.slotID
+    button.currentLotGlow:SetShown(isCurrentLot)
+  end
 end
 
 local function RefreshPreview()
   local slot = AuctionPrices.Posting.GetCurrentSlot() or relevantEntries[1]
+  HighlightCurrentLot(slot)
   previewIcon.bagID = slot and slot.bagID
   previewIcon.slotID = slot and slot.slotID
   local lot = slot and AuctionPrices.Posting.DescribeLot(slot)
@@ -287,7 +313,7 @@ local function RefreshLists()
   local relevant, excluded
   relevant, excluded, waitingForItemData = SplitWorthAuctionSlots()
   relevantEntries = relevant
-  relevantTotalLabel:SetText(AuctionPrices.Text("RELEVANT_TOTAL", AuctionPrices.FormatMoney(TotalStackValue(relevant))))
+  relevantTotalLabel:SetText(AuctionPrices.Text("TOTAL_SALE_VALUE", AuctionPrices.FormatMoney(TotalStackValue(relevant))))
   ShowEntries(relevantList, relevant)
   ShowEntries(excludedList, excluded)
   UpdatePostButton()
@@ -347,7 +373,7 @@ local function CreateItemHeader(preview)
   previewLotLabel:SetJustifyH("RIGHT")
   previewLotLabel:SetJustifyV("MIDDLE")
   previewLotLabel:SetWordWrap(true)
-  previewLotLabel:SetText(AuctionPrices.Text("POSTING_LOT"))
+  previewLotLabel:SetText(AuctionPrices.Text("LOT_BEING_POSTED"))
 
   previewIcon:SetPoint("LEFT", previewLotLabel, "RIGHT", PREVIEW_TEXT_GAP, 0)
   previewIcon:RegisterForDrag()
@@ -383,7 +409,7 @@ local function CreateDurationDropdown(preview)
   relevantTotalLabel:SetWidth(260)
   relevantTotalLabel:SetJustifyH("CENTER")
   relevantTotalLabel:SetWordWrap(false)
-  relevantTotalLabel:SetText(AuctionPrices.Text("RELEVANT_TOTAL", AuctionPrices.FormatMoney(0)))
+  relevantTotalLabel:SetText(AuctionPrices.Text("TOTAL_SALE_VALUE", AuctionPrices.FormatMoney(0)))
 end
 
 local function CreateEmptyNotice(preview)
@@ -393,7 +419,7 @@ local function CreateEmptyNotice(preview)
   previewEmptyNotice:SetJustifyH("CENTER")
   previewEmptyNotice:SetJustifyV("MIDDLE")
   previewEmptyNotice:SetWordWrap(true)
-  previewEmptyNotice:SetText(AuctionPrices.Text("NO_PROFITABLE_LOTS"))
+  previewEmptyNotice:SetText(AuctionPrices.Text("NO_PROFITABLE_ITEMS"))
   previewEmptyNotice:Hide()
 end
 
@@ -447,8 +473,8 @@ local function CreateRelevantList(parent)
   local inset = CreateListBackground(parent)
   inset:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, LIST_TOP)
   inset:SetPoint("BOTTOMRIGHT", parent, "BOTTOM", 0, PREVIEW_BOTTOM_SPACE)
-  CreateSectionTab(parent, inset, "RELEVANT_LOTS", "TOPLEFT", PAGE_LEFT + LEFT_TAB_OFFSET)
-  CreateListHint(inset, "RELEVANT_HINT")
+  CreateSectionTab(parent, inset, "PROFITABLE_QUEUE", "TOPLEFT", PAGE_LEFT + LEFT_TAB_OFFSET)
+  CreateListHint(inset, "MORE_PROFITABLE_ON_AUCTION")
   relevantList = CreateItemScroll(inset, 36, false)
 end
 
@@ -456,8 +482,8 @@ local function CreateExcludedList(parent)
   local inset = CreateListBackground(parent)
   inset:SetPoint("TOPLEFT", parent, "TOP", 0, LIST_TOP)
   inset:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, PREVIEW_BOTTOM_SPACE)
-  CreateSectionTab(parent, inset, "FILTERED_LOTS", "TOP", RIGHT_TAB_OFFSET)
-  CreateListHint(inset, "FILTERED_HINT")
+  CreateSectionTab(parent, inset, "NOT_FOR_SALE", "TOP", RIGHT_TAB_OFFSET)
+  CreateListHint(inset, "EXCLUDED_FROM_POSTING")
   excludedList = CreateItemScroll(inset, 36, true)
 end
 

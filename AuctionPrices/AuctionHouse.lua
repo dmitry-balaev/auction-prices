@@ -47,7 +47,7 @@ end
 
 local function ScanButtonStatusText()
   if AuctionPrices.Scan.IsWaitingForAuctionList() then
-    return AuctionPrices.Text("FETCHING_TOOLTIP")
+    return AuctionPrices.Text("DONT_CLOSE_WHILE_RECEIVING")
   end
   if not AuctionPrices.Scan.IsInProgress() then
     return AuctionPrices.Scan.CooldownMessage()
@@ -57,7 +57,7 @@ end
 local function ShowScanButtonTooltip(owner)
   if AuctionPrices.Scan.CanStart() then
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-    GameTooltip:SetText(AuctionPrices.Text("SCAN_TOOLTIP"), nil, nil, nil, nil, true)
+    GameTooltip:SetText(AuctionPrices.Text("SCAN_AND_SAVE_PRICES"), nil, nil, nil, nil, true)
     GameTooltip:Show()
     return
   end

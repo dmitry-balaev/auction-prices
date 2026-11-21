@@ -19,9 +19,9 @@ local SMART_SELL_DEFAULTS = {
 }
 
 local MARK_OPTIONS = {
-  { mark = AuctionPrices.SellWorthMarks.Auction, textKey = "MARK_AUCTION" },
-  { mark = AuctionPrices.SellWorthMarks.Vendor, textKey = "MARK_VENDOR" },
-  { mark = AuctionPrices.SellWorthMarks.Both, textKey = "MARK_BOTH" },
+  { mark = AuctionPrices.SellWorthMarks.Auction, textKey = "MARK_PROFITABLE_WITH_ICON" },
+  { mark = AuctionPrices.SellWorthMarks.Vendor, textKey = "DIM_UNPROFITABLE" },
+  { mark = AuctionPrices.SellWorthMarks.Both, textKey = "MARK_BOTH_WAYS" },
 }
 
 local PANEL_WIDTH = 560
@@ -81,9 +81,9 @@ end
 local function LastScanText()
   local lastScanTime = AuctionPrices.GetRealmPriceDatabase().lastScan
   if not lastScanTime then
-    return AuctionPrices.Text("LAST_SCAN", AuctionPrices.Text("NEVER"))
+    return AuctionPrices.Text("LAST_SCAN_TIME", AuctionPrices.Text("NEVER"))
   end
-  return AuctionPrices.Text("LAST_SCAN", date("%d-%m-%Y %H:%M", lastScanTime))
+  return AuctionPrices.Text("LAST_SCAN_TIME", date("%d-%m-%Y %H:%M", lastScanTime))
 end
 
 local function MarkOptionText(mark)
@@ -113,7 +113,7 @@ end
 local function RefreshDatabaseSection()
   local storedPriceCount = AuctionPrices.CountStoredPrices()
   lastScanLabel:SetText(LastScanText())
-  priceCountLabel:SetText(AuctionPrices.Text("ITEM_COUNT", storedPriceCount))
+  priceCountLabel:SetText(AuctionPrices.Text("STORED_RECORD_COUNT", storedPriceCount))
   clearDatabaseButton:SetEnabled(storedPriceCount > 0)
 end
 
@@ -122,14 +122,14 @@ local function RefreshSellWorthSection()
   sellWorthCheckbox:SetChecked(sellWorthSettings.enabled)
   UIDropDownMenu_SetText(markDropdown, MarkOptionText(sellWorthSettings.mark))
   thresholdSlider:SetValue(sellWorthSettings.percent)
-  thresholdLabel:SetText(AuctionPrices.Text("SELL_WORTH_PERCENT", sellWorthSettings.percent))
+  thresholdLabel:SetText(AuctionPrices.Text("DIFFERENCE_THRESHOLD", sellWorthSettings.percent))
   SetSellWorthControlsEnabled(sellWorthSettings.enabled)
 end
 
 local function RefreshSmartSellSection()
   local excludedItemCount = AuctionPrices.CountDoNotSell()
   smartSellCheckbox:SetChecked(AuctionPrices.GetSmartSellSettings().enabled)
-  doNotSellCountLabel:SetText(AuctionPrices.Text("DO_NOT_SELL_COUNT", excludedItemCount))
+  doNotSellCountLabel:SetText(AuctionPrices.Text("NOT_FOR_SALE_COUNT", excludedItemCount))
   clearDoNotSellButton:SetEnabled(excludedItemCount > 0)
 end
 
@@ -248,7 +248,7 @@ end
 local function CreateDatabaseSection(parent)
   local databaseHeader = CreateText(parent, "GameFontHighlightLarge", AuctionPrices.Text("DATABASE"))
   databaseHeader:SetPoint("TOPLEFT", PANEL_PADDING, -62)
-  local databaseDescription = CreateSectionDescription(parent, databaseHeader, "DATABASE_HINT")
+  local databaseDescription = CreateSectionDescription(parent, databaseHeader, "SAVED_PRICES_COMPARE_VENDOR")
 
   lastScanLabel = CreateText(parent, "GameFontNormal")
   lastScanLabel:SetPoint("TOPLEFT", databaseDescription, "BOTTOMLEFT", SECTION_INDENT, -12)
@@ -256,7 +256,7 @@ local function CreateDatabaseSection(parent)
   priceCountLabel = CreateText(parent, "GameFontNormal")
   priceCountLabel:SetPoint("TOPLEFT", lastScanLabel, "BOTTOMLEFT", 0, -6)
 
-  clearDatabaseButton = CreateActionButton(parent, "CLEAR_DB", AuctionPrices.ClearStoredPrices)
+  clearDatabaseButton = CreateActionButton(parent, "CLEAR_DATABASE", AuctionPrices.ClearStoredPrices)
   clearDatabaseButton:SetPoint("TOPLEFT", priceCountLabel, "BOTTOMLEFT", 0, -12)
 end
 
@@ -275,15 +275,15 @@ local function CreateThresholdSlider(parent)
 end
 
 local function CreateSellWorthSection(parent)
-  local sellWorthHeader = CreateText(parent, "GameFontHighlightLarge", AuctionPrices.Text("SELL_WORTH"))
+  local sellWorthHeader = CreateText(parent, "GameFontHighlightLarge", AuctionPrices.Text("AUCTION_PROFITABILITY"))
   sellWorthHeader:SetPoint("TOPLEFT", clearDatabaseButton, "BOTTOMLEFT", -SECTION_INDENT, -22)
-  local sellWorthDescription = CreateSectionDescription(parent, sellWorthHeader, "SELL_WORTH_HINT")
+  local sellWorthDescription = CreateSectionDescription(parent, sellWorthHeader, "BAG_MARKS_AUCTION_OR_VENDOR")
 
   local enableLabel = CreateText(parent, ENABLED_LABEL_FONT, AuctionPrices.Text("ENABLE"))
   enableLabel:SetPoint("TOPLEFT", sellWorthDescription, "BOTTOMLEFT", SECTION_INDENT, -14)
   sellWorthCheckbox = CreateCheckbox(parent, enableLabel, OnSellWorthCheckboxClicked)
 
-  markLabel = CreateText(parent, ENABLED_LABEL_FONT, AuctionPrices.Text("MARK"))
+  markLabel = CreateText(parent, ENABLED_LABEL_FONT, AuctionPrices.Text("HOW_TO_MARK"))
   markLabel:SetPoint("TOPLEFT", enableLabel, "BOTTOMLEFT", 0, -20)
 
   markDropdown = CreateFrame("Frame", "AuctionPricesSellWorthDropdown", parent, "UIDropDownMenuTemplate")
@@ -299,7 +299,7 @@ end
 local function CreateSmartSellSection(parent)
   local smartSellHeader = CreateText(parent, "GameFontHighlightLarge", AuctionPrices.Text("SMART_SELL"))
   smartSellHeader:SetPoint("TOPLEFT", thresholdLabel, "BOTTOMLEFT", -SECTION_INDENT, -28)
-  local smartSellDescription = CreateSectionDescription(parent, smartSellHeader, "SMART_SELL_HINT")
+  local smartSellDescription = CreateSectionDescription(parent, smartSellHeader, "POST_PROFITABLE_OR_EXCLUDE")
 
   local enableLabel = CreateText(parent, ENABLED_LABEL_FONT, AuctionPrices.Text("ENABLE"))
   enableLabel:SetPoint("TOPLEFT", smartSellDescription, "BOTTOMLEFT", SECTION_INDENT, -14)
@@ -308,7 +308,7 @@ local function CreateSmartSellSection(parent)
   doNotSellCountLabel = CreateText(parent, "GameFontNormal")
   doNotSellCountLabel:SetPoint("TOPLEFT", enableLabel, "BOTTOMLEFT", 0, -16)
 
-  clearDoNotSellButton = CreateActionButton(parent, "CLEAR_DO_NOT_SELL", AuctionPrices.ClearDoNotSell)
+  clearDoNotSellButton = CreateActionButton(parent, "CLEAR_LIST", AuctionPrices.ClearDoNotSell)
   clearDoNotSellButton:SetPoint("TOPLEFT", doNotSellCountLabel, "BOTTOMLEFT", 0, -12)
 end
 

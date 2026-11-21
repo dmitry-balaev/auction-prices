@@ -71,7 +71,7 @@ local function ReportProcessingPercent(processedCount, auctionCount)
     return
   end
   lastShownProcessingPercent = percent
-  ReportScanStatus(AuctionPrices.Text("PROCESSING", percent))
+  ReportScanStatus(AuctionPrices.Text("PROCESSING_LOTS", percent))
 end
 
 local function IsCurrentScan(generationToken)
@@ -244,7 +244,7 @@ end
 
 function AuctionPrices.Scan.CooldownMessage()
   local secondsRemaining = SecondsUntilNextScan()
-  return AuctionPrices.Text("NEXT_SCAN", math.floor(secondsRemaining / 60), secondsRemaining % 60)
+  return AuctionPrices.Text("NEXT_SCAN_WAIT", math.floor(secondsRemaining / 60), secondsRemaining % 60)
 end
 
 function AuctionPrices.Scan.Start()
@@ -253,7 +253,7 @@ function AuctionPrices.Scan.Start()
   waitingForAuctionList = true
   AuctionPrices.BagPrices.Stop()
   AuctionPrices.GetRealmPriceDatabase().lastAttempt = time()
-  ReportScanStatus(AuctionPrices.Text("FETCHING"))
+  ReportScanStatus(AuctionPrices.Text("RECEIVING_LOTS"))
   AuctionPrices.PriceCheckChanged.Notify()
 
   replicateEventFrame:RegisterEvent("REPLICATE_ITEM_LIST_UPDATE")

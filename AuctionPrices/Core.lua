@@ -10,8 +10,12 @@ local NOT_SOULBOUND_BIND_TYPES = {
   [Enum.ItemBind.OnUse] = true,
 }
 
+function AuctionPrices.Print(textKey, ...)
+  print(CHAT_PREFIX .. AuctionPrices.Text(textKey, ...))
+end
+
 local function PrintReminder(textKey)
-  print(CHAT_PREFIX .. AuctionPrices.Text(textKey))
+  AuctionPrices.Print(textKey)
 end
 
 function AuctionPrices.CountKeys(keyedTable)
@@ -96,11 +100,11 @@ end
 local function RemindAboutScan()
   local lastScanTime = AuctionPrices.GetRealmPriceDatabase().lastScan
   if not lastScanTime or AuctionPrices.CountStoredPrices() == 0 then
-    PrintReminder("MISSING_DB")
+    PrintReminder("PRICE_DATABASE_MISSING")
     return
   end
   if time() - lastScanTime > STALE_SCAN_SECONDS then
-    PrintReminder("STALE_SCAN")
+    PrintReminder("PRICES_ARE_STALE")
   end
 end
 

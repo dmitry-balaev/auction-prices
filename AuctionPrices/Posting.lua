@@ -21,9 +21,55 @@ local activityCallback
 local inFlight
 local inFlightGeneration = 0
 local unacknowledgedCreates = 0
+local priorityKeys = {}
 
 local function NotifyActivity()
   activityCallback()
+end
+
+local function SlotKey(slot)
+  return slot.bagID .. ":" .. slot.slotID .. ":" .. slot.itemLink
+end
+
+local function ForgetPriority(slot)
+  local slotKey = SlotKey(slot)
+  for index = #priorityKeys, 1, -1 do
+    if priorityKeys[index] == slotKey then
+      table.remove(priorityKeys, index)
+    end
+  end
+end
+
+function AuctionPrices.Posting.OrderByPriority(slots)
+  local rankByKey = {}
+  for rank, slotKey in ipairs(priorityKeys) do
+    rankByKey[slotKey] = rank
+  end
+  local prioritized = {}
+  local others = {}
+  for _, slot in ipairs(slots) do
+    if rankByKey[SlotKey(slot)] then
+      table.insert(prioritized, slot)
+    else
+      table.insert(others, slot)
+    end
+  end
+  table.sort(prioritized, function(left, right)
+    return rankByKey[SlotKey(left)] < rankByKey[SlotKey(right)]
+  end)
+  for _, slot in ipairs(others) do
+    table.insert(prioritized, slot)
+  end
+  return prioritized
+end
+
+function AuctionPrices.Posting.PutFirst(slot)
+  ForgetPriority(slot)
+  table.insert(priorityKeys, 1, SlotKey(slot))
+  if postingActive then
+    queue = AuctionPrices.Posting.OrderByPriority(queue)
+  end
+  NotifyActivity()
 end
 
 local function AuctionUnitPrice(unitPrice)
@@ -173,6 +219,7 @@ local function WatchServerReply(generation)
       WatchServerReply(generation)
       return
     end
+    AuctionPrices.Print("NO_SERVER_REPLY", inFlight.slot.itemLink)
     ReturnInFlightToQueue()
   end)
 end
@@ -213,6 +260,7 @@ end
 
 local function SendAuction(slot, lot)
   local countBefore = BagItemCount(lot.itemLink)
+  ForgetPriority(slot)
   local needsConfirmation = PostLot(lot)
   inFlightGeneration = inFlightGeneration + 1
   inFlight = {
@@ -233,7 +281,16 @@ end
 
 local function TryPostSlot(slot)
   local lot = AuctionPrices.Posting.DescribeLot(slot)
-  if not lot or lot.unitPrice == 0 or GetMoney() < lot.deposit then
+  if not lot then
+    AuctionPrices.Print("ITEM_MOVED_POST_AGAIN", slot.itemLink)
+    return SKIPPED
+  end
+  if lot.unitPrice == 0 then
+    AuctionPrices.Print("NO_PRICE_IN_DATABASE", slot.itemLink)
+    return SKIPPED
+  end
+  if GetMoney() < lot.deposit then
+    AuctionPrices.Print("NOT_ENOUGH_FOR_DEPOSIT", slot.itemLink, AuctionPrices.FormatMoney(lot.deposit))
     return SKIPPED
   end
   if lot.isLocked then
@@ -290,7 +347,7 @@ local function PostableSlots()
       table.insert(slots, slot)
     end
   end
-  return slots
+  return AuctionPrices.Posting.OrderByPriority(slots)
 end
 
 local function RebuildQueue()
@@ -344,10 +401,14 @@ listener:SetScript("OnEvent", function(_, event)
   if event == "AUCTION_HOUSE_SHOW" then
     unacknowledgedCreates = 0
   elseif event == "AUCTION_HOUSE_CLOSED" then
+    priorityKeys = {}
     AuctionPrices.Posting.Stop()
   elseif event == "AUCTION_HOUSE_AUCTION_CREATED" then
     OnAuctionCreated()
   elseif event == "AUCTION_HOUSE_POST_ERROR" then
+    if inFlight then
+      AuctionPrices.Print("AUCTION_REJECTED_LOT", inFlight.slot.itemLink)
+    end
     ReturnInFlightToQueue()
   else
     CompleteInFlightIfItemLeftBags()

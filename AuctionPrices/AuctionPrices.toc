@@ -7,7 +7,7 @@
 ## SavedVariables: AUCTION_PRICES_DB
 ## AllowLoadGameType: camelot
 
-Locales.lua
+Texts.lua
 Core.lua
 Database.lua
 Scan.lua

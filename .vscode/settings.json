@@ -69,7 +69,9 @@
         "SetItemButtonTexture",
         "SetItemButtonQuality",
         "ITEM_QUALITY_COLORS",
-        "NOT_READY"
+        "NOT_READY",
+        "NUM_TOTAL_EQUIPPED_BAG_SLOTS",
+        "EventUtil"
     ],
     "Lua.type.weakUnionCheck": true
 }

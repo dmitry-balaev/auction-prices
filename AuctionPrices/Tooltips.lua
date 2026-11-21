@@ -13,7 +13,7 @@ local function ShowAuctionPrice(tooltip, itemLink, stackCount)
   end
   local unitPrice = AuctionPrices.GetStoredUnitPrice(itemLink)
   local priceText = unitPrice and AuctionPrices.FormatMoney(unitPrice * StackSize(stackCount)) or AuctionPrices.Text("UNKNOWN")
-  tooltip:AddLine(WHITE_FONT_COLOR:WrapTextInColorCode(AuctionPrices.Text("SELL_PRICE") .. " " .. priceText))
+  tooltip:AddLine(WHITE_FONT_COLOR:WrapTextInColorCode(AuctionPrices.Text("AUCTION_PRICE") .. " " .. priceText))
 end
 
 local function ItemLinkByID(itemID)
