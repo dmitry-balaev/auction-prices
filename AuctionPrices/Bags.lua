@@ -38,7 +38,13 @@ local function BestSale(containerItemInfo)
     return SALE_UNKNOWN
   end
   local auctionPrice = AuctionPrices.GetStoredUnitPrice(itemLink)
-  if not auctionPrice or vendorPrice == 0 or AuctionPrices.IsBagItemBound(containerItemInfo) then
+  if not auctionPrice or AuctionPrices.IsBagItemBound(containerItemInfo) then
+    return SALE_NOT_COMPARABLE
+  end
+  if vendorPrice == 0 then
+    if auctionPrice > 0 then
+      return SALE_AUCTION
+    end
     return SALE_NOT_COMPARABLE
   end
   if AuctionPriceBeatsVendor(auctionPrice, vendorPrice) then

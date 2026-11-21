@@ -14,6 +14,9 @@ local function ShowAuctionPrice(tooltip, itemLink, stackCount)
   local unitPrice = AuctionPrices.GetStoredUnitPrice(itemLink)
   local priceText = unitPrice and AuctionPrices.FormatMoney(unitPrice * StackSize(stackCount)) or AuctionPrices.Text("UNKNOWN")
   tooltip:AddLine(WHITE_FONT_COLOR:WrapTextInColorCode(AuctionPrices.Text("AUCTION_PRICE") .. " " .. priceText))
+  if tooltip:IsShown() then
+    tooltip:Show()
+  end
 end
 
 local function ItemLinkByID(itemID)
@@ -123,32 +126,22 @@ tooltipHandlers.SetRecipeResultItem = function(tooltip, recipeID, reagents, allo
   ShowAuctionPrice(tooltip, recipeOutput and recipeOutput.hyperlink, schematic.quantityMin)
 end
 
-local function AddAuctionPrice(tooltip, tooltipData)
-  local tooltipInfo = tooltip.info or tooltip.processingInfo
-  local handlerName = tooltipInfo and tooltipInfo.getterName and tooltipInfo.getterName:gsub("^Get", "Set")
-  local tooltipHandler = handlerName and not tooltipInfo.excludeLines and tooltipHandlers[handlerName]
-  if tooltipHandler then
-    tooltipHandler(tooltip, unpack(tooltipInfo.getterArgs or {}))
+local function HookPriceMethod(tooltip, methodName)
+  if type(tooltip[methodName]) ~= "function" then
     return
   end
-  if tooltipData.id then
-    ShowAuctionPrice(tooltip, ItemLinkByID(tooltipData.id), 1)
-  end
-end
-
-local function IsPriceTooltip(tooltip)
-  if tooltip == GameTooltip or tooltip == ItemRefTooltip then
-    return true
-  end
-  local tooltipName = tooltip:GetName()
-  return tooltipName ~= nil and tooltipName:match("^NotGameTooltip") ~= nil
+  hooksecurefunc(tooltip, methodName, function(owner, ...)
+    if owner:IsForbidden() then
+      return
+    end
+    tooltipHandlers[methodName](owner, ...)
+  end)
 end
 
 function AuctionPrices.Tooltips.InstallHooks()
-  TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, tooltipData)
-    if tooltip:IsForbidden() or not IsPriceTooltip(tooltip) then
-      return
+  for _, tooltip in ipairs({ GameTooltip, ItemRefTooltip }) do
+    for methodName in pairs(tooltipHandlers) do
+      HookPriceMethod(tooltip, methodName)
     end
-    AddAuctionPrice(tooltip, tooltipData)
-  end)
+  end
 end

@@ -21,7 +21,8 @@ local activityCallback
 local inFlight
 local inFlightGeneration = 0
 local unacknowledgedCreates = 0
-local priorityKeys = {}
+local chosenSlotKey
+local PostableSlots
 
 local function NotifyActivity()
   activityCallback()
@@ -31,27 +32,23 @@ local function SlotKey(slot)
   return slot.bagID .. ":" .. slot.slotID .. ":" .. slot.itemLink
 end
 
-function AuctionPrices.Posting.OrderByPriority(slots)
-  local rankByKey = {}
-  for rank, slotKey in ipairs(priorityKeys) do
-    rankByKey[slotKey] = rank
+function AuctionPrices.Posting.ChosenAmong(slots)
+  if not chosenSlotKey then
+    return
   end
-  local prioritized = {}
-  local others = {}
   for _, slot in ipairs(slots) do
-    if rankByKey[SlotKey(slot)] then
-      table.insert(prioritized, slot)
-    else
-      table.insert(others, slot)
+    if SlotKey(slot) == chosenSlotKey then
+      return slot
     end
   end
-  table.sort(prioritized, function(left, right)
-    return rankByKey[SlotKey(left)] < rankByKey[SlotKey(right)]
-  end)
-  for _, slot in ipairs(others) do
-    table.insert(prioritized, slot)
+end
+
+function AuctionPrices.Posting.ChooseForSale(slot)
+  chosenSlotKey = SlotKey(slot)
+  if postingActive and not inFlight then
+    queue = PostableSlots()
   end
-  return prioritized
+  NotifyActivity()
 end
 
 local function AuctionUnitPrice(unitPrice)
@@ -321,47 +318,22 @@ local function IsInFlightSlot(slot)
   return inFlight ~= nil and inFlight.slot.bagID == slot.bagID and inFlight.slot.slotID == slot.slotID
 end
 
-local function PostableSlots()
+PostableSlots = function()
   local slots = {}
+  local chosenSlot
   for _, slot in ipairs(AuctionPrices.CollectWorthAuctionSlots()) do
     if not AuctionPrices.IsDoNotSell(slot.itemLink) and not IsInFlightSlot(slot) then
-      table.insert(slots, slot)
+      if SlotKey(slot) == chosenSlotKey then
+        chosenSlot = slot
+      else
+        table.insert(slots, slot)
+      end
     end
   end
-  return AuctionPrices.Posting.OrderByPriority(slots)
-end
-
-function AuctionPrices.Posting.SwapWithCurrent(slot)
-  local slots = {}
-  for _, candidate in ipairs(AuctionPrices.CollectWorthAuctionSlots()) do
-    if not AuctionPrices.IsDoNotSell(candidate.itemLink) then
-      table.insert(slots, candidate)
-    end
+  if chosenSlot then
+    table.insert(slots, 1, chosenSlot)
   end
-  slots = AuctionPrices.Posting.OrderByPriority(slots)
-  local currentKey = SlotKey(AuctionPrices.Posting.GetCurrentSlot() or slots[1] or slot)
-  local chosenKey = SlotKey(slot)
-  local currentIndex, chosenIndex
-  for index, orderedSlot in ipairs(slots) do
-    local key = SlotKey(orderedSlot)
-    if key == currentKey then
-      currentIndex = index
-    elseif key == chosenKey then
-      chosenIndex = index
-    end
-  end
-  if not currentIndex or not chosenIndex or currentIndex == chosenIndex then
-    return
-  end
-  slots[currentIndex], slots[chosenIndex] = slots[chosenIndex], slots[currentIndex]
-  priorityKeys = {}
-  for index, orderedSlot in ipairs(slots) do
-    priorityKeys[index] = SlotKey(orderedSlot)
-  end
-  if postingActive then
-    queue = PostableSlots()
-  end
-  NotifyActivity()
+  return slots
 end
 
 local function RebuildQueue()
@@ -415,7 +387,7 @@ listener:SetScript("OnEvent", function(_, event)
   if event == "AUCTION_HOUSE_SHOW" then
     unacknowledgedCreates = 0
   elseif event == "AUCTION_HOUSE_CLOSED" then
-    priorityKeys = {}
+    chosenSlotKey = nil
     AuctionPrices.Posting.Stop()
   elseif event == "AUCTION_HOUSE_AUCTION_CREATED" then
     OnAuctionCreated()

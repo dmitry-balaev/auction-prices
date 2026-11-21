@@ -63,7 +63,7 @@ local function SplitWorthAuctionSlots()
       table.insert(excluded, slot)
     end
   end
-  return AuctionPrices.Posting.OrderByPriority(relevant), excluded, slotsWaitingForItemData
+  return relevant, excluded, slotsWaitingForItemData
 end
 
 local function ShowPostButtonTooltip(owner)
@@ -115,7 +115,7 @@ local function OnSlotClick(button, mouseButton)
     return
   end
   if mouseButton == "LeftButton" then
-    AuctionPrices.Posting.SwapWithCurrent({ bagID = button.bagID, slotID = button.slotID, itemLink = button.itemLink })
+    AuctionPrices.Posting.ChooseForSale({ bagID = button.bagID, slotID = button.slotID, itemLink = button.itemLink })
     return
   end
   AuctionPrices.AddDoNotSell(button.itemLink)
@@ -284,7 +284,9 @@ local function HighlightCurrentLot(slot)
 end
 
 local function RefreshPreview()
-  local slot = AuctionPrices.Posting.GetCurrentSlot() or relevantEntries[1]
+  local slot = AuctionPrices.Posting.GetCurrentSlot()
+    or AuctionPrices.Posting.ChosenAmong(relevantEntries)
+    or relevantEntries[1]
   HighlightCurrentLot(slot)
   previewIcon.bagID = slot and slot.bagID
   previewIcon.slotID = slot and slot.slotID
